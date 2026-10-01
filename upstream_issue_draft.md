@@ -57,7 +57,15 @@ Also 1–40 blocks dropped every ~5 s while idle with Whisper medium on CPU (it 
 
 `tools/builtin/local_files.py` supports `list/read/write/append/delete`; the only guard is `_resolve_safe` (path must be inside the home directory). I could not find a confirmation step or a config switch to disable the tool or make it read-only. For setups where voice recognition errors or the hot window can trigger an unintended command, a read-only mode and/or an allowlist of folders (and a confirmation requirement for write/delete) would be valuable. Note it was also selected for a "search my notes" request instead of an installed Obsidian MCP search tool, and then listed ~8 directories.
 
-## 7. Minor
+## 7. Whisper's per-utterance language drives intent rewriting and the reply language; no way to pin it
+
+For a mixed Russian/English utterance ("что такое gravel bike и чем он отличается от MTB?") Whisper's auto-detected language flips to `en`. We then observed: the intent judge rewrote the query into English (`directed → "what is gravel bike and how does it differ from MTB"`), the chat model answered entirely in English although the system prompt said "reply strictly in Russian", the Russian Piper voice read English text as gibberish, and the microphone then transcribed that gibberish as Latvian/Spanish. `listener.py` passes `language=self._last_detected_language` into the reply pipeline, and `config.language` (we set `"language": "ru"`) does not appear to be a settings field, so nothing can force it. A `whisper_language` / `stt_language` setting (passed to faster-whisper and to the judge/reply) would fix this class of problems for non-English users. Workaround: an explicit "always reply in Russian even if the request or its paraphrase is English" sentence in `system_prompt`.
+
+## 8. Stop commands are only checked while `tts.is_speaking()` is true at the moment the transcript arrives
+
+`listener.py` checks `is_stop_command` only inside `if self.tts.is_speaking():`. With STT latency of several seconds (CPU Whisper, dropped audio blocks), a spoken "stop" often arrives when the flag is momentarily false (gap between synthesized chunks) or after the utterance has been classified as `Heard during TTS (waiting for hot window)`, and is then ignored: a 95 s spoken answer could not be interrupted even with `stop_commands` extended with the Russian word `стоп` (config verified). Also `stop_commands` defaults are English-only. Suggestions: apply the stop check in the "heard during TTS" path as well, and/or run it on partial/early transcripts; consider a visible/hotkey "stop speaking" in the tray menu.
+
+## 9. Minor
 
 - `voice_device` as a numeric index breaks when AirPods connect (`Error opening InputStream: Invalid number of channels [PaErrorCode -9998]`); using a name substring works (supported in code but not mentioned in the UI/docs).
 - Native crash 7 minutes after the 2.3.0 update: `-[NSEvent clickCount]` NSAssertionHandler (EXC_CRASH, Abort trap: 6) from Qt on a non-mouse event; `.ips` available.
